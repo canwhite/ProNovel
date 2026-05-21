@@ -2,37 +2,80 @@ name: Build & Release
 
 on:
   workflow_dispatch:
+    inputs:
+      url:
+        description: 'Website URL to wrap'
+        required: false
+        type: string
+        default: 'https://pronovel.cc'
+      app_name:
+        description: 'App display name'
+        required: false
+        type: string
+        default: 'ProNovel'
+      width:
+        description: 'Window width (px)'
+        required: false
+        type: string
+        default: '1200'
+      height:
+        description: 'Window height (px)'
+        required: false
+        type: string
+        default: '780'
+      platforms:
+        description: 'Which platforms to build'
+        required: true
+        type: choice
+        options:
+          - all
+          - linux
+          - macos
+          - windows
+        default: 'all'
+      hide_title_bar:
+        description: 'Hide title bar (macOS)'
+        required: false
+        type: boolean
+        default: false
+      multi_arch:
+        description: 'Universal binary — Intel + Apple Silicon (macOS)'
+        required: false
+        type: boolean
+        default: false
+      debug:
+        description: 'Enable DevTools'
+        required: false
+        type: boolean
+        default: false
   push:
     tags: ["v*"]
 
-jobs:
-  build:
-    name: ${{ matrix.build }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - build: linux
-            os: ubuntu-latest
-          - build: macos
-            os: macos-latest
-          - build: windows
-            os: windows-latest
+env:
+  APP_URL: ${{ github.event.inputs.url || 'https://pronovel.cc' }}
+  APP_NAME: ${{ github.event.inputs.app_name || 'ProNovel' }}
+  APP_WIDTH: ${{ github.event.inputs.width || '1200' }}
+  APP_HEIGHT: ${{ github.event.inputs.height || '780' }}
 
+jobs:
+  # ─── Linux ───────────────────────────────────────
+  build-linux:
+    name: Linux (.deb + AppImage)
+    if: |
+      github.event_name == 'push' ||
+      github.event.inputs.platforms == 'all' ||
+      github.event.inputs.platforms == 'linux'
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout Pake source
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           repository: tw93/Pake
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
 
-      - name: Setup environment
-        uses: ./.github/actions/setup-env
+      - uses: ./.github/actions/setup-env
         with:
           mode: build
 
@@ -51,61 +94,24 @@ jobs:
             src-tauri/target/
           key: ${{ runner.os }}-cargo-pronovel-${{ hashFiles('**/Cargo.lock') }}
 
-      # ── Linux ──────────────────────────────────────
-      - name: Build ProNovel (Linux)
-        if: runner.os == 'Linux'
+      - name: Build App
         timeout-minutes: 25
         run: |
-          node dist/cli.js "https://pronovel.cc" \
-            --name pronovel \
-            --width 1200 --height 780 \
+          node dist/cli.js "${APP_URL}" \
+            --name "${APP_NAME,,}" \
+            --width "${APP_WIDTH}" \
+            --height "${APP_HEIGHT}" \
             --targets deb,appimage
           mkdir -p output
-          for f in *.deb;        do [ -f "$f" ] && mv "$f" output/ProNovel_linux_amd64.deb;        done
-          for f in *.AppImage;   do [ -f "$f" ] && mv "$f" output/ProNovel_linux_amd64.AppImage;   done
+          for f in *.deb;      do [ -f "$f" ] && mv "$f" output/ProNovel_linux_amd64.deb;      done
+          for f in *.AppImage; do [ -f "$f" ] && mv "$f" output/ProNovel_linux_amd64.AppImage; done
           ls -la output/
 
-      # ── macOS ──────────────────────────────────────
-      - name: Build ProNovel (macOS)
-        if: runner.os == 'macOS'
-        timeout-minutes: 30
-        run: |
-          node dist/cli.js "https://pronovel.cc" \
-            --name ProNovel \
-            --width 1200 --height 780 \
-            --hide-title-bar \
-            --targets universal --multi-arch
-          mkdir -p output
-          for f in *.dmg; do [ -f "$f" ] && mv "$f" output/ProNovel_macos.dmg; done
-          ls -la output/
-
-      # ── Windows ────────────────────────────────────
-      - name: Build ProNovel (Windows)
-        if: runner.os == 'Windows'
-        timeout-minutes: 25
-        shell: pwsh
-        run: |
-          node dist/cli.js "https://pronovel.cc" `
-            --name ProNovel `
-            --width 1200 --height 780 `
-            --targets x64
-          New-Item -Path output -ItemType Directory -Force
-          $msi = Get-ChildItem -Name "*.msi" | Select-Object -First 1
-          if ($msi) { Move-Item $msi output\ProNovel_windows_x64.msi }
-          Get-ChildItem output\
-
-      # ── Upload to GitHub Release ───────────────────
-      - name: Upload to Release
-        uses: ncipollo/release-action@v1
-        if: startsWith(github.ref, 'refs/tags/')
+      - uses: actions/upload-artifact@v4
         with:
-          allowUpdates: true
-          omitBody: true
-          omitName: true
-          artifacts: output/*
-          token: ${{ secrets.GITHUB_TOKEN }}
+          name: pronovel-linux
+          path: output/*
 
-      # ── Cache save ─────────────────────────────────
       - name: Rust cache save
         uses: actions/cache/save@v4
         if: steps.cache.outputs.cache-hit != 'true'
@@ -117,3 +123,171 @@ jobs:
             ~/.cargo/git/db/
             src-tauri/target/
           key: ${{ runner.os }}-cargo-pronovel-${{ hashFiles('**/Cargo.lock') }}
+
+  # ─── macOS ───────────────────────────────────────
+  build-macos:
+    name: macOS (.dmg)
+    if: |
+      github.event_name == 'push' ||
+      github.event.inputs.platforms == 'all' ||
+      github.event.inputs.platforms == 'macos'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: tw93/Pake
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - uses: ./.github/actions/setup-env
+        with:
+          mode: build
+
+      - name: Build CLI
+        run: pnpm run cli:build
+
+      - name: Rust cache restore
+        uses: actions/cache/restore@v4
+        id: cache
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-cargo-pronovel-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build App
+        timeout-minutes: 30
+        run: |
+          FLAGS="--width ${APP_WIDTH} --height ${APP_HEIGHT}"
+          if [ "${{ github.event.inputs.hide_title_bar || 'false' }}" = "true" ]; then
+            FLAGS="${FLAGS} --hide-title-bar"
+          fi
+          if [ "${{ github.event.inputs.multi_arch || 'false' }}" = "true" ]; then
+            FLAGS="${FLAGS} --multi-arch"
+          fi
+          if [ "${{ github.event.inputs.debug || 'false' }}" = "true" ]; then
+            FLAGS="${FLAGS} --debug"
+          fi
+
+          node dist/cli.js "${APP_URL}" \
+            --name "${APP_NAME}" \
+            ${FLAGS} \
+            --targets universal
+
+          mkdir -p output
+          for f in *.dmg; do [ -f "$f" ] && mv "$f" output/ProNovel_macos.dmg; done
+          ls -la output/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pronovel-macos
+          path: output/*
+
+      - name: Rust cache save
+        uses: actions/cache/save@v4
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-cargo-pronovel-${{ hashFiles('**/Cargo.lock') }}
+
+  # ─── Windows ─────────────────────────────────────
+  build-windows:
+    name: Windows (.msi)
+    if: |
+      github.event_name == 'push' ||
+      github.event.inputs.platforms == 'all' ||
+      github.event.inputs.platforms == 'windows'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: tw93/Pake
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - uses: ./.github/actions/setup-env
+        with:
+          mode: build
+
+      - name: Build CLI
+        run: pnpm run cli:build
+
+      - name: Rust cache restore
+        uses: actions/cache/restore@v4
+        id: cache
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-cargo-pronovel-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build App
+        timeout-minutes: 25
+        shell: pwsh
+        run: |
+          node dist/cli.js "$env:APP_URL" `
+            --name "$env:APP_NAME" `
+            --width "$env:APP_WIDTH" `
+            --height "$env:APP_HEIGHT" `
+            --targets x64
+
+          New-Item -Path output -ItemType Directory -Force
+          $msi = Get-ChildItem -Name "*.msi" | Select-Object -First 1
+          if ($msi) { Move-Item $msi output\ProNovel_windows_x64.msi }
+          Get-ChildItem output\
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pronovel-windows
+          path: output/*
+
+      - name: Rust cache save
+        uses: actions/cache/save@v4
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-cargo-pronovel-${{ hashFiles('**/Cargo.lock') }}
+
+  # ─── Release ─────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build-linux, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pronovel-*
+          merge-multiple: true
+          path: output
+
+      - name: List artifacts
+        run: ls -la output/
+
+      - uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          omitBody: true
+          omitName: true
+          artifacts: output/*
+          token: ${{ secrets.GITHUB_TOKEN }}
