@@ -3,25 +3,27 @@
 ## 一、整体架构
 
 ```
-你本地                              GitHub                              用户
-  │                                   │                                   │
-  │ ① git tag v1.0.0                 │                                   │
-  │ ② git push origin v1.0.0        │                                   │
-  │ ────────────────────────────────► │                                   │
-  │                                   │ ③ Actions 检测到 v* tag           │
-  │                                   │    自动启动 3 台虚拟机             │
-  │                                   │                                   │
-  │                                   │ ④ 三台虚拟机并行构建               │
-  │                                   │    ubuntu-latest   → .deb/.AppImg │
-  │                                   │    macos-latest     → .dmg        │
-  │                                   │    windows-latest   → .msi        │
-  │                                   │                                   │
-  │                                   │ ⑤ release job 汇总产物            │
-  │                                   │    创建 GitHub Release 并上传     │
-  │                                   │                                   │
-  │                                   │ ⑥ Release 页面自动出现下载链接    │
-  │                                   │ ────────────────────────────────► │
-  │                                   │                                   │ ⑦ 下载安装
+你本地                              GitHub                                    用户
+  │                                   │                                         │
+  │ ① git tag v1.0.0                 │                                         │
+  │ ② git push origin v1.0.0        │                                         │
+  │ ────────────────────────────────► │                                         │
+  │                                   │ ③ Actions 检测到 v* tag                 │
+  │                                   │                                         │
+  │                                   │ ④ 三台虚拟机并行构建                     │
+  │                                   │    ubuntu-latest   → .deb/.AppImage     │
+  │                                   │    macos-latest     → .dmg              │
+  │                                   │    windows-latest   → .msi              │
+  │                                   │                                         │
+  │                                   │ ⑤ release job 汇总产物                  │
+  │                                   │    创建 GitHub Release 并上传安装包     │
+  │                                   │                                         │
+  │                                   │ ⑥ deploy job 部署下载页                 │
+  │                                   │    index.html → GitHub Pages            │
+  │                                   │                                         │
+  │                                   │ ⑦ 下载页自动上线                        │
+  │                                   │ ──────────────────────────────────────► │
+  │                                   │                                         │ ⑧ 访问页面下载
 ```
 
 核心依赖：
@@ -72,7 +74,7 @@ release:
 
 ---
 
-## 三、Job 执行流程（4 个 Job 详解）
+## 三、Job 执行流程（5 个 Job 详解）
 
 ```
 push tag v1.0.0
@@ -81,7 +83,9 @@ push tag v1.0.0
       ├── build-macos   (macos-latest)  ──┤  并行执行
       ├── build-windows (windows-latest) ──┘
       │
-      └── release       (ubuntu-latest)    ← 等上面三个全部完成
+      ├── release       (ubuntu-latest)    ← 等三个 build 全部完成
+      │
+      └── deploy        (ubuntu-latest)    ← 等 release 完成
 ```
 
 每个 build job 条件执行逻辑：
@@ -357,6 +361,63 @@ needs: [build-linux, build-macos, build-windows]
 
 ---
 
+### 3.5 deploy — 部署下载页到 GitHub Pages
+
+**触发条件**：
+
+```yaml
+if: startsWith(github.ref, 'refs/tags/')
+needs: release
+```
+
+等 release job 创建完 Release 之后执行，确保用户访问下载页时 API 能拉到最新 Release。
+
+#### 步骤 1：检出 ProNovel 仓库
+
+```yaml
+- uses: actions/checkout@v4
+```
+
+这次 checkout 的是 ProNovel 仓库本身（不是 Pake），因为 index.html 在这里。
+
+#### 步骤 2：配置 Pages
+
+```yaml
+- uses: actions/configure-pages@v4
+  with:
+    enablement: true
+```
+
+自动检测仓库的 Pages 设置。`enablement: true` 确保即使你还没在 Settings 里手动开启 Pages，也能自动启用。
+
+#### 步骤 3：上传部署文件
+
+```yaml
+- uses: actions/upload-pages-artifact@v3
+  with:
+    path: .
+```
+
+把仓库根目录打包为 Pages artifact。由于仓库根目录有 index.html，Pages 会自动把它作为首页。
+
+#### 步骤 4：部署到 GitHub Pages
+
+```yaml
+- uses: actions/deploy-pages@v4
+```
+
+将 artifact 推送到 `canwhite.github.io/ProNovel`。
+
+#### 访问地址
+
+部署完成后，下载页在：
+
+```
+https://canwhite.github.io/ProNovel/
+```
+
+---
+
 ## 四、下载页自动更新机制
 
 `index.html` 是纯静态页面，部署在 GitHub Pages。
@@ -441,11 +502,11 @@ git push origin v1.0.0
 
 | 时间 | 发生了什么 |
 |------|-----------|
-| 推送 tag 后 0 秒 | GitHub Actions 检测到 `v1.0.0` tag，启动 workflow |
+| 推送 tag 后 0 秒 | GitHub Actions 检测到 tag，启动 workflow |
 | 0-15 分钟（首次）/ 0-5 分钟（后续） | Linux、macOS、Windows 三台虚拟机并行构建 |
 | 构建完成后 | release job 汇总产物，创建 GitHub Release，上传安装包 |
-| Release 发布后 | 下载页自动显示 v1.0.0 的下载链接 |
-| 永久 | 安装包挂在 Release 上，不会过期 |
+| Release 创建后 | deploy job 将 index.html 部署到 GitHub Pages |
+| 全部完成后 | 访问 `https://canwhite.github.io/ProNovel/` 即可看到下载页 |
 
 **不需要：**
 - 本地安装 Rust / Node.js / pnpm
