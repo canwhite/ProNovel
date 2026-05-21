@@ -51,6 +51,10 @@ on:
   push:
     tags: ["v*"]
 
+permissions:
+  contents: write   # 允许创建 Release
+  actions: write    # 允许 download-artifact 跨 job 共享产物
+
 env:
   APP_URL: ${{ github.event.inputs.url || 'https://pronovel.cc' }}
   APP_NAME: ${{ github.event.inputs.app_name || 'ProNovel' }}
