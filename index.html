@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ProNovel - Download</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0d0d0d;
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 60px 20px;
+  }
+  .container { max-width: 640px; width: 100%; }
+
+  /* Header */
+  .header { text-align: center; margin-bottom: 48px; }
+  .header h1 { font-size: 36px; font-weight: 700; color: #fff; margin-bottom: 8px; letter-spacing: -0.5px; }
+  .header p  { font-size: 16px; color: #888; }
+  .badge {
+    display: inline-block; margin-top: 14px;
+    padding: 4px 14px; border-radius: 20px;
+    background: #1a1a1a; border: 1px solid #333;
+    font-size: 13px; color: #aaa;
+  }
+  .badge.loading { animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }
+
+  /* Download cards */
+  .cards { display: flex; flex-direction: column; gap: 12px; }
+  .card {
+    display: flex; align-items: center;
+    background: #141414; border: 1px solid #222; border-radius: 12px;
+    padding: 20px 24px; transition: border-color 0.2s;
+  }
+  .card:hover { border-color: #444; }
+
+  .card .icon {
+    width: 44px; height: 44px; flex-shrink: 0;
+    margin-right: 18px; font-size: 28px; line-height: 44px; text-align: center;
+  }
+  .card .info { flex: 1; min-width: 0; }
+  .card .info .platform { font-size: 16px; font-weight: 600; color: #fff; }
+  .card .info .meta    { font-size: 13px; color: #666; margin-top: 2px; }
+
+  .card .btn {
+    flex-shrink: 0; margin-left: 16px;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 10px 20px; border-radius: 8px;
+    background: #2563eb; color: #fff; font-size: 14px; font-weight: 600;
+    text-decoration: none; transition: background 0.2s;
+  }
+  .card .btn:hover { background: #1d4ed8; }
+  .card .btn.secondary { background: #1a1a1a; border: 1px solid #333; }
+  .card .btn.secondary:hover { background: #222; }
+
+  /* Footer */
+  .footer { margin-top: 48px; text-align: center; font-size: 12px; color: #555; }
+  .footer a { color: #666; text-decoration: none; }
+  .footer a:hover { color: #999; }
+
+  .error { text-align: center; color: #ef4444; padding: 20px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>ProNovel</h1>
+    <p>Professional novel reading, wrapped as a desktop app</p>
+    <div class="badge loading" id="version">Loading latest version...</div>
+  </div>
+
+  <div class="cards" id="cards">
+    <!-- macOS -->
+    <div class="card" id="card-macos" style="display:none">
+      <div class="icon">🍎</div>
+      <div class="info">
+        <div class="platform">macOS</div>
+        <div class="meta">Universal binary · Intel & Apple Silicon</div>
+      </div>
+      <a class="btn" id="dl-macos" href="#">Download .dmg</a>
+    </div>
+
+    <!-- Windows -->
+    <div class="card" id="card-windows" style="display:none">
+      <div class="icon">🪟</div>
+      <div class="info">
+        <div class="platform">Windows</div>
+        <div class="meta">64-bit installer</div>
+      </div>
+      <a class="btn" id="dl-windows" href="#">Download .msi</a>
+    </div>
+
+    <!-- Linux .deb -->
+    <div class="card" id="card-linux-deb" style="display:none">
+      <div class="icon">🐧</div>
+      <div class="info">
+        <div class="platform">Linux</div>
+        <div class="meta">Debian / Ubuntu (.deb)</div>
+      </div>
+      <a class="btn" id="dl-linux-deb" href="#">Download .deb</a>
+    </div>
+
+    <!-- Linux AppImage -->
+    <div class="card" id="card-linux-appimage" style="display:none">
+      <div class="icon">📦</div>
+      <div class="info">
+        <div class="platform">Linux</div>
+        <div class="meta">Portable AppImage</div>
+      </div>
+      <a class="btn secondary" id="dl-linux-appimage" href="#">Download .AppImage</a>
+    </div>
+  </div>
+
+  <div class="error" id="error" style="display:none"></div>
+
+  <div class="footer">
+    Built with <a href="https://github.com/tw93/Pake" target="_blank">Pake</a>
+    · <a href="https://github.com/tw93/Pake" target="_blank">GitHub</a>
+  </div>
+</div>
+
+<script>
+(async () => {
+  const API = (() => {
+    const host = window.location.hostname;          // username.github.io
+    const owner = host.split('.')[0];               // username
+    const repo  = window.location.pathname.split('/').filter(Boolean)[0] || 'ProNovel';
+    return `https://api.github.com/repos/${owner}/${repo}/releases/latest`;
+  })();
+
+  try {
+    const res = await fetch(API);
+    if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
+
+    const release = await res.json();
+    document.getElementById('version').textContent = release.tag_name;
+    document.getElementById('version').classList.remove('loading');
+
+    const extMap = {
+      dmg:       { card: 'card-macos',          btn: 'dl-macos' },
+      msi:       { card: 'card-windows',        btn: 'dl-windows' },
+      deb:       { card: 'card-linux-deb',      btn: 'dl-linux-deb' },
+      AppImage:  { card: 'card-linux-appimage', btn: 'dl-linux-appimage' },
+    };
+
+    for (const asset of release.assets) {
+      const ext = asset.name.split('.').pop();
+      const ext2 = asset.name.split('.').slice(-2).join('.'); // AppImage
+      const key = ext2 === 'AppImage' ? 'AppImage' : ext;
+
+      const el = extMap[key];
+      if (!el) continue;
+
+      const card = document.getElementById(el.card);
+      const btn  = document.getElementById(el.btn);
+      if (!card || !btn) continue;
+
+      card.style.display = '';
+      btn.href = asset.browser_download_url;
+
+      const mb = (asset.size / 1024 / 1024).toFixed(1);
+      btn.textContent = `Download (${mb} MB)`;
+    }
+  } catch (err) {
+    document.getElementById('version').textContent = 'Unable to fetch release info';
+    document.getElementById('version').classList.remove('loading');
+    const errEl = document.getElementById('error');
+    errEl.style.display = '';
+    errEl.textContent = 'Could not load release data. Visit the Releases page directly.';
+    console.error(err);
+  }
+})();
+</script>
+
+</body>
+</html>
